@@ -1,0 +1,34 @@
+# Backend specific gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Virtual environments
+venv/
+env/
+.env
+
+# Test coverage
+.coverage
+htmlcov/
+.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.log
+
+# Generated atlas files (for testing)
+test_atlas_*.png
+output/
+temp/
+
+# Local configuration
+config.local.py
+.env.local
