@@ -37,8 +37,7 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     environment:
       - REACT_APP_API_URL=http://backend:8000
     networks:
@@ -64,8 +63,6 @@ services:
       - backend
     networks:
       - atlas-network
-    profiles:
-      - production  # Only run with --profile production
 
 networks:
   atlas-network:
