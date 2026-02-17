@@ -14,10 +14,12 @@ const App = () => {
     sample: 1,
     outline: 0,
     removeColor: null,
+    removeColorThreshold: 3,
     shadowScale: 0.0,
     useShadowImages: false,
     missingShadowPolicy: 'skipShadow',
     useBackground: false,
+    skipDuplicate: true,
     previewMaxWidth: 1024
   });
   const [previewUrl, setPreviewUrl] = useState(null);

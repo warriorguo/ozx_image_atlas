@@ -109,14 +109,14 @@ def is_roughly_same(a, b, threshold=3):
     return abs(a[0] - b[0]) <= threshold and abs(a[1] - b[1]) <= threshold and abs(a[2] - b[2]) <= threshold
 
 
-def make_transparent(img, replace_color):
+def make_transparent(img, replace_color, threshold=3):
     """Replace a specific color with transparency"""
     data = img.getdata()
     transparent = (0, 0, 0, 0)
     new_data = []
 
     for item in data:
-        if is_roughly_same(replace_color, item):
+        if is_roughly_same(replace_color, item, threshold):
             new_data.append(transparent)
         else:
             new_data.append(item)

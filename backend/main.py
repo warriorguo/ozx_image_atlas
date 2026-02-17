@@ -32,10 +32,12 @@ def validate_params(params_json: str) -> AtlasParams:
     sample = params_dict.get("sample", 1)
     outline = params_dict.get("outline", 0)
     remove_color = params_dict.get("removeColor")
+    remove_color_threshold = params_dict.get("removeColorThreshold", 3)
     shadow_scale = params_dict.get("shadowScale", 0.0)
     use_shadow_images = params_dict.get("useShadowImages", False)
     missing_shadow_policy = params_dict.get("missingShadowPolicy", "skipShadow")
     use_background = params_dict.get("useBackground", False)
+    skip_duplicate = params_dict.get("skipDuplicate", True)
     preview_max_width = params_dict.get("previewMaxWidth", 1024)
     
     # Validation
@@ -51,6 +53,8 @@ def validate_params(params_json: str) -> AtlasParams:
         raise HTTPException(status_code=400, detail="shadowScale must be between 0 and 5")
     if missing_shadow_policy not in ["skipShadow", "ignoreSprite", "fail"]:
         raise HTTPException(status_code=400, detail="Invalid missingShadowPolicy")
+    if remove_color_threshold < 0 or remove_color_threshold > 255:
+        raise HTTPException(status_code=400, detail="removeColorThreshold must be between 0 and 255")
     
     return AtlasParams(
         tile_size=tile_size,
@@ -58,10 +62,12 @@ def validate_params(params_json: str) -> AtlasParams:
         sample=sample,
         outline=outline,
         remove_color=remove_color,
+        remove_color_threshold=remove_color_threshold,
         shadow_scale=shadow_scale,
         use_shadow_images=use_shadow_images,
         missing_shadow_policy=missing_shadow_policy,
         use_background=use_background,
+        skip_duplicate=skip_duplicate,
         preview_max_width=preview_max_width
     )
 

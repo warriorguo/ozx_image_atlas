@@ -20,10 +20,12 @@ class AtlasParams:
     sample: int = 1
     outline: int = 0
     remove_color: Optional[str] = None
+    remove_color_threshold: int = 3
     shadow_scale: float = 0.0
     use_shadow_images: bool = False
     missing_shadow_policy: str = "skipShadow"  # "skipShadow", "ignoreSprite", "fail"
     use_background: bool = False
+    skip_duplicate: bool = True
     preview_max_width: int = 1024
 
 
@@ -47,7 +49,7 @@ class AtlasProcessor:
         # Remove color if specified
         if self.params.remove_color:
             remove_color = self.parse_remove_color(self.params.remove_color)
-            img = make_transparent(img, remove_color)
+            img = make_transparent(img, remove_color, self.params.remove_color_threshold)
 
         # Add outline if specified
         if self.params.outline > 0:
@@ -115,7 +117,7 @@ class AtlasProcessor:
                 img = Image.open(image_file).convert("RGBA")
                 
                 # Skip duplicate images
-                if last_image and image_equal(last_image, img):
+                if self.params.skip_duplicate and last_image and image_equal(last_image, img):
                     self.report["ignored"].append({"name": image_name, "reason": "duplicate"})
                     continue
                 

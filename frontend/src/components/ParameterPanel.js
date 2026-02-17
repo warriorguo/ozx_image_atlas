@@ -61,6 +61,18 @@ const ParameterPanel = ({ params, onParamsChange }) => {
       </div>
 
       <div className="param-item">
+        <label>Color Threshold ({params.removeColorThreshold})</label>
+        <input
+          type="range"
+          value={params.removeColorThreshold}
+          onChange={(e) => updateParam('removeColorThreshold', parseInt(e.target.value))}
+          min="0"
+          max="128"
+          disabled={!params.removeColor}
+        />
+      </div>
+
+      <div className="param-item">
         <label>Shadow Scale</label>
         <input
           type="number"
@@ -93,6 +105,15 @@ const ParameterPanel = ({ params, onParamsChange }) => {
           <option value="ignoreSprite">Ignore Sprite</option>
           <option value="fail">Fail</option>
         </select>
+      </div>
+
+      <div className="param-item checkbox-param">
+        <input
+          type="checkbox"
+          checked={params.skipDuplicate}
+          onChange={(e) => updateParam('skipDuplicate', e.target.checked)}
+        />
+        <label>Skip Duplicates</label>
       </div>
 
       <div className="param-item checkbox-param">
