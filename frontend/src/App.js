@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import FileUpload from './components/FileUpload';
 import FileList from './components/FileList';
 import ParameterPanel from './components/ParameterPanel';
+import SpritePlayer from './components/SpritePlayer';
 import './index.css';
 
 const App = () => {
@@ -324,6 +325,16 @@ const App = () => {
                 <div className="loading">Add some images to see preview</div>
               )}
             </div>
+          </div>
+
+          {/* Sprite Player Section */}
+          <div className="section">
+            <h2>Sprite Player</h2>
+            <SpritePlayer
+              previewUrl={previewUrl}
+              tileSize={params.tileSize}
+              columns={params.width}
+            />
           </div>
 
           {/* Report Section */}
