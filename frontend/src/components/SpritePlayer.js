@@ -6,6 +6,7 @@ const SpritePlayer = ({ previewUrl, tileSize, columns }) => {
   const animFrameRef = useRef(null);
   const lastFrameTimeRef = useRef(0);
   const currentFrameRef = useRef(0);
+  const tileSizeInPreviewRef = useRef({ w: 0, h: 0 });
 
   const [startFrame, setStartFrame] = useState(0);
   const [endFrame, setEndFrame] = useState(0);
@@ -15,7 +16,7 @@ const SpritePlayer = ({ previewUrl, tileSize, columns }) => {
   const [totalTiles, setTotalTiles] = useState(0);
   const [imageLoaded, setImageLoaded] = useState(false);
 
-  // Load image and calculate total tiles
+  // Load image and calculate total tiles from actual image dimensions
   useEffect(() => {
     if (!previewUrl) {
       setImageLoaded(false);
@@ -27,7 +28,11 @@ const SpritePlayer = ({ previewUrl, tileSize, columns }) => {
     img.onload = () => {
       imageRef.current = img;
       const cols = columns || 1;
-      const rows = Math.floor(img.height / tileSize) || 1;
+      // Calculate actual tile size in the preview image from image dimensions
+      const tileW = img.width / cols;
+      const tileH = tileW; // tiles are square
+      tileSizeInPreviewRef.current = { w: tileW, h: tileH };
+      const rows = Math.round(img.height / tileH) || 1;
       const total = cols * rows;
       setTotalTiles(total);
       setEndFrame(total - 1);
@@ -41,18 +46,21 @@ const SpritePlayer = ({ previewUrl, tileSize, columns }) => {
     const img = imageRef.current;
     if (!canvas || !img) return;
 
+    const { w: tileW, h: tileH } = tileSizeInPreviewRef.current;
+    if (tileW <= 0 || tileH <= 0) return;
+
     const ctx = canvas.getContext('2d');
-    canvas.width = tileSize;
-    canvas.height = tileSize;
+    canvas.width = tileW;
+    canvas.height = tileH;
 
     const col = frameIndex % columns;
     const row = Math.floor(frameIndex / columns);
-    const sx = col * tileSize;
-    const sy = row * tileSize;
+    const sx = col * tileW;
+    const sy = row * tileH;
 
-    ctx.clearRect(0, 0, tileSize, tileSize);
-    ctx.drawImage(img, sx, sy, tileSize, tileSize, 0, 0, tileSize, tileSize);
-  }, [tileSize, columns]);
+    ctx.clearRect(0, 0, tileW, tileH);
+    ctx.drawImage(img, sx, sy, tileW, tileH, 0, 0, tileW, tileH);
+  }, [columns]);
 
   // Animation loop
   useEffect(() => {
@@ -108,6 +116,7 @@ const SpritePlayer = ({ previewUrl, tileSize, columns }) => {
   if (!previewUrl) return null;
 
   const maxFrame = totalTiles > 0 ? totalTiles - 1 : 0;
+  const displaySize = Math.min(tileSize * 2, 256);
 
   return (
     <div className="sprite-player">
@@ -115,8 +124,8 @@ const SpritePlayer = ({ previewUrl, tileSize, columns }) => {
         <canvas
           ref={canvasRef}
           style={{
-            width: Math.min(tileSize * 2, 256),
-            height: Math.min(tileSize * 2, 256),
+            width: displaySize,
+            height: displaySize,
             imageRendering: 'pixelated',
             border: '1px solid #ddd',
             borderRadius: '4px',
