@@ -98,8 +98,8 @@ def validate_files(images: List[UploadFile]) -> None:
 async def preview_atlas(
     images: List[UploadFile] = File(...),
     params: str = Form(...),
-    shadowImages: Optional[List[UploadFile]] = File(None),
-    background: Optional[UploadFile] = File(None)
+    shadowImages: List[UploadFile] = File(default=[]),
+    background: Optional[UploadFile] = File(default=None)
 ):
     """Generate atlas preview"""
     try:
@@ -163,8 +163,8 @@ async def preview_atlas(
 async def export_atlas(
     images: List[UploadFile] = File(...),
     params: str = Form(...),
-    shadowImages: Optional[List[UploadFile]] = File(None),
-    background: Optional[UploadFile] = File(None)
+    shadowImages: List[UploadFile] = File(default=[]),
+    background: Optional[UploadFile] = File(default=None)
 ):
     """Export final atlas"""
     try:
