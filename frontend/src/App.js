@@ -3,6 +3,7 @@ import FileUpload from './components/FileUpload';
 import FileList from './components/FileList';
 import ParameterPanel from './components/ParameterPanel';
 import SpritePlayer from './components/SpritePlayer';
+import WorkspaceBar from './components/WorkspaceBar';
 import './index.css';
 
 const App = () => {
@@ -28,6 +29,8 @@ const App = () => {
   const [error, setError] = useState(null);
   const [report, setReport] = useState(null);
   const [exportFilename, setExportFilename] = useState('atlas.png');
+  const [workspaceId, setWorkspaceId] = useState(null);
+  const [workspaceName, setWorkspaceName] = useState('');
 
   const debounce = (func, wait) => {
     let timeout;
@@ -208,6 +211,69 @@ const App = () => {
     }
   };
 
+  const handleSaveWorkspace = async (name) => {
+    const formData = new FormData();
+    formData.append('name', name);
+    formData.append('params', JSON.stringify(params));
+    formData.append('exportFilename', exportFilename);
+    if (workspaceId) {
+      formData.append('workspaceId', workspaceId);
+    }
+    sprites.forEach(sprite => formData.append('images', sprite));
+    shadowImages.forEach(shadow => formData.append('shadowImages', shadow));
+    if (background) {
+      formData.append('background', background);
+    }
+
+    const response = await fetch('/v1/workspace/save', {
+      method: 'POST',
+      body: formData,
+    });
+    if (!response.ok) {
+      const err = await response.json();
+      setError(err.detail || 'Save failed');
+      return;
+    }
+    const result = await response.json();
+    setWorkspaceId(result.id);
+    setWorkspaceName(name);
+  };
+
+  const handleLoadWorkspace = async (id) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetch(`/v1/workspace/${id}`);
+      if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Load failed');
+      }
+      const data = await response.json();
+
+      // Convert base64 images back to File objects
+      const toFile = (entry) => {
+        const binary = atob(entry.data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const ext = entry.filename.split('.').pop().toLowerCase();
+        const mimeTypes = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', bmp: 'image/bmp', webp: 'image/webp' };
+        return new File([bytes], entry.filename, { type: mimeTypes[ext] || 'image/png' });
+      };
+
+      setSprites(data.sprites.map(toFile));
+      setShadowImages(data.shadowImages.map(toFile));
+      setBackground(data.background ? toFile(data.background) : null);
+      setParams(data.params);
+      setExportFilename(data.export_filename || 'atlas.png');
+      setWorkspaceId(data.id);
+      setWorkspaceName(data.name);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const renderReport = () => {
     if (!report) return null;
 
@@ -253,6 +319,12 @@ const App = () => {
 
   return (
     <div className="app">
+      <WorkspaceBar
+        onSave={handleSaveWorkspace}
+        onLoad={handleLoadWorkspace}
+        currentWorkspaceId={workspaceId}
+        currentWorkspaceName={workspaceName}
+      />
       <div className="main-content">
         <div className="left-panel">
           {/* Sprites Section */}

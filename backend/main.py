@@ -1,13 +1,24 @@
-from fastapi import FastAPI, File, UploadFile, Form, HTTPException
+from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
+from contextlib import asynccontextmanager
 import json
 from io import BytesIO
 
 from atlas_service import AtlasProcessor, AtlasParams
+from database import ensure_database, get_session
+from sqlalchemy.ext.asyncio import AsyncSession
+import workspace_service
 
-app = FastAPI(title="OZX Image Atlas API", version="1.0.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await ensure_database()
+    yield
+
+
+app = FastAPI(title="OZX Image Atlas API", version="1.0.0", lifespan=lifespan)
 
 # Add CORS middleware
 app.add_middleware(
@@ -223,6 +234,76 @@ async def export_atlas(
 async def root():
     """Health check endpoint"""
     return {"message": "OZX Image Atlas API is running"}
+
+
+# ── Workspace endpoints ──────────────────────────────────────────────
+
+@app.post("/v1/workspace/save")
+async def save_workspace(
+    params: str = Form(...),
+    name: str = Form(...),
+    exportFilename: str = Form("atlas.png"),
+    workspaceId: Optional[str] = Form(None),
+    images: List[UploadFile] = File(default=[]),
+    shadowImages: List[UploadFile] = File(default=[]),
+    background: Optional[UploadFile] = File(default=None),
+    session: AsyncSession = Depends(get_session),
+):
+    """Save current workspace to database."""
+    try:
+        params_dict = json.loads(params)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON in params")
+
+    sprites = []
+    for img in images:
+        content = await img.read()
+        sprites.append((img.filename, content))
+
+    shadows = []
+    for img in shadowImages:
+        content = await img.read()
+        shadows.append((img.filename, content))
+
+    bg = None
+    if background:
+        content = await background.read()
+        bg = (background.filename, content)
+
+    try:
+        result = await workspace_service.save_workspace(
+            session, name, params_dict, exportFilename,
+            sprites, shadows, bg, workspaceId
+        )
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/v1/workspace/list")
+async def list_workspaces(session: AsyncSession = Depends(get_session)):
+    """List all saved workspaces."""
+    return await workspace_service.list_workspaces(session)
+
+
+@app.get("/v1/workspace/{workspace_id}")
+async def load_workspace(workspace_id: str, session: AsyncSession = Depends(get_session)):
+    """Load a workspace with all data."""
+    try:
+        return await workspace_service.load_workspace(session, workspace_id)
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.delete("/v1/workspace/{workspace_id}")
+async def delete_workspace(workspace_id: str, session: AsyncSession = Depends(get_session)):
+    """Delete a workspace."""
+    deleted = await workspace_service.delete_workspace(session, workspace_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="Workspace not found")
+    return {"deleted": True}
 
 
 if __name__ == "__main__":

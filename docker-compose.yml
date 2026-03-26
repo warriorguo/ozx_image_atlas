@@ -15,6 +15,7 @@ services:
     environment:
       - ENV=production
       - PYTHONPATH=/app
+      - DATABASE_URL=postgres://liuli@192.168.0.151:5432/ozx_atlas
     volumes:
       # Optional: Mount for logs
       - ./logs:/app/logs
