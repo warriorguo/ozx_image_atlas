@@ -12,7 +12,7 @@ const ParameterPanel = ({ params, onParamsChange }) => {
         <input
           type="number"
           value={params.tileSize}
-          onChange={(e) => updateParam('tileSize', parseInt(e.target.value) || 52)}
+          onChange={(e) => updateParam('tileSize', parseInt(e.target.value) || 192)}
           min="1"
           max="512"
         />

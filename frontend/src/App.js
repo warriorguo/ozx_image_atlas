@@ -11,7 +11,7 @@ const App = () => {
   const [shadowImages, setShadowImages] = useState([]);
   const [background, setBackground] = useState(null);
   const [params, setParams] = useState({
-    tileSize: 52,
+    tileSize: 192,
     width: 6,
     sample: 1,
     outline: 0,

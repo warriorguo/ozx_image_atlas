@@ -15,7 +15,7 @@ from shadow_matching import process_shadow_matching
 
 @dataclass
 class AtlasParams:
-    tile_size: int = 52
+    tile_size: int = 192
     width: int = 6
     sample: int = 1
     outline: int = 0

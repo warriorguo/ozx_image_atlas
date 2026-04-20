@@ -38,7 +38,7 @@ def validate_params(params_json: str) -> AtlasParams:
         raise HTTPException(status_code=400, detail="Invalid JSON in params")
     
     # Validate required parameters
-    tile_size = params_dict.get("tileSize", 52)
+    tile_size = params_dict.get("tileSize", 192)
     width = params_dict.get("width", 6)
     sample = params_dict.get("sample", 1)
     outline = params_dict.get("outline", 0)
