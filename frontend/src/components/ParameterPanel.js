@@ -81,7 +81,6 @@ const ParameterPanel = ({ params, onParamsChange }) => {
           onChange={(e) => updateParam('shadowScale', parseFloat(e.target.value) || 0)}
           min="0"
           max="5"
-          disabled={params.useShadowImages}
         />
       </div>
 

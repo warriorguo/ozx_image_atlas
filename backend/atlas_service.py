@@ -57,7 +57,8 @@ class AtlasProcessor:
 
         # Add shadow
         if self.params.use_shadow_images and shadow_img:
-            img = add_shadow_file(img, shadow_img)
+            scale = self.params.shadow_scale if self.params.shadow_scale > 0 else 1.0
+            img = add_shadow_file(img, shadow_img, shadow_scale=scale)
         elif self.params.shadow_scale > 0:
             img = add_shadow_scale(img, shadow_scale=self.params.shadow_scale)
 
