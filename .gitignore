@@ -1,6 +1,11 @@
 # OZX Image Atlas Tool - Git Ignore File
 
 # ====================
+# Claude Code (per-developer)
+# ====================
+.claude/settings.local.json
+
+# ====================
 # Operating System
 # ====================
 
