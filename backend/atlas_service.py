@@ -2,7 +2,7 @@ from PIL import Image
 from io import BytesIO
 import hashlib
 from typing import List, Dict, Optional, Tuple, Union
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import base64
 import json
 
@@ -27,6 +27,9 @@ class AtlasParams:
     use_background: bool = False
     skip_duplicate: bool = True
     preview_max_width: int = 1024
+    # Map of sprite filename -> tile-background filename. Per-tile background
+    # overrides the global background for those sprites.
+    tile_background_assignments: Dict[str, str] = field(default_factory=dict)
 
 
 class AtlasProcessor:
@@ -69,27 +72,40 @@ class AtlasProcessor:
 
         return img
 
-    def process_images(self, image_files: List[BytesIO], image_names: List[str], 
-                      shadow_files: Optional[List[BytesIO]] = None, 
+    def _composite_background_tile(self, img: Image.Image, bg_tile: Image.Image, h: int) -> Image.Image:
+        """Composite a single-tile background under a (possibly multi-tile) sprite."""
+        if h > 1:
+            bg_full = Image.new("RGBA", img.size, (0, 0, 0, 0))
+            for y in range(h):
+                bg_full.paste(bg_tile, (0, y * self.params.tile_size))
+            return Image.alpha_composite(bg_full, img)
+        if bg_tile.size != img.size:
+            bg_tile = bg_tile.resize(img.size, Image.LANCZOS)
+        return Image.alpha_composite(bg_tile, img)
+
+    def process_images(self, image_files: List[BytesIO], image_names: List[str],
+                      shadow_files: Optional[List[BytesIO]] = None,
                       shadow_names: Optional[List[str]] = None,
-                      background_file: Optional[BytesIO] = None) -> Tuple[Image.Image, Dict]:
+                      background_file: Optional[BytesIO] = None,
+                      tile_background_files: Optional[List[BytesIO]] = None,
+                      tile_background_names: Optional[List[str]] = None) -> Tuple[Image.Image, Dict]:
         """Process all images and create atlas"""
-        
+
         # Load and process shadow matching if needed
         shadow_matches = {}
         if self.params.use_shadow_images and shadow_files and shadow_names:
             shadow_matching_result = process_shadow_matching(image_names, shadow_names)
-            
+
             # Load shadow images into memory
             shadow_images = {}
             for i, (shadow_file, shadow_name) in enumerate(zip(shadow_files, shadow_names)):
                 shadow_file.seek(0)
                 shadow_images[shadow_name] = Image.open(shadow_file).convert("RGBA")
-            
+
             # Process shadow matching results
             for sprite_name, shadow_name in shadow_matching_result['matches'].items():
                 shadow_matches[sprite_name] = shadow_images[shadow_name]
-            
+
             self.report["shadowMissing"] = shadow_matching_result['missing']
             self.report["shadowAmbiguous"] = [
                 {"sprite": sprite, "candidates": candidates}
@@ -102,6 +118,16 @@ class AtlasProcessor:
             background_file.seek(0)
             bg = Image.open(background_file).convert("RGBA")
             bg_tile = bg.resize((self.params.tile_size, self.params.tile_size), Image.LANCZOS)
+
+        # Load per-tile backgrounds (keyed by filename) for assignments
+        tile_bg_tiles: Dict[str, Image.Image] = {}
+        if tile_background_files and tile_background_names:
+            for tb_file, tb_name in zip(tile_background_files, tile_background_names):
+                tb_file.seek(0)
+                tb_img = Image.open(tb_file).convert("RGBA")
+                tile_bg_tiles[tb_name] = tb_img.resize(
+                    (self.params.tile_size, self.params.tile_size), Image.LANCZOS
+                )
 
         # Process sprites
         processed_images = {}
@@ -152,18 +178,12 @@ class AtlasProcessor:
                     self.report["ignored"].append({"name": image_name, "reason": "too wide"})
                     continue
 
-                # Apply background if needed
-                if bg_tile:
-                    if h > 1:
-                        # Create tiled background for multi-tile sprites
-                        bg_full = Image.new("RGBA", img.size, (0, 0, 0, 0))
-                        for y in range(h):
-                            bg_full.paste(bg_tile, (0, y * self.params.tile_size))
-                        img = Image.alpha_composite(bg_full, img)
-                    else:
-                        # Single tile background
-                        bg_resized = bg_tile.resize(img.size, Image.LANCZOS)
-                        img = Image.alpha_composite(bg_resized, img)
+                # Apply background: per-tile assignment takes precedence over global.
+                assigned_bg_name = self.params.tile_background_assignments.get(image_name)
+                per_tile_bg = tile_bg_tiles.get(assigned_bg_name) if assigned_bg_name else None
+                effective_bg = per_tile_bg or bg_tile
+                if effective_bg:
+                    img = self._composite_background_tile(img, effective_bg, h)
 
                 # Find position in atlas
                 loc = find_position(tile_map, self.params.width, w, h)

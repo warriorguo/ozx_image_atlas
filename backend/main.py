@@ -1,7 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from typing import List, Optional, Tuple
 from contextlib import asynccontextmanager
 import json
 from io import BytesIO
@@ -50,7 +50,8 @@ def validate_params(params_json: str) -> AtlasParams:
     use_background = params_dict.get("useBackground", False)
     skip_duplicate = params_dict.get("skipDuplicate", True)
     preview_max_width = params_dict.get("previewMaxWidth", 1024)
-    
+    tile_background_assignments = params_dict.get("tileBackgroundAssignments", {}) or {}
+
     # Validation
     if tile_size <= 0 or tile_size > 512:
         raise HTTPException(status_code=400, detail="tileSize must be between 1 and 512")
@@ -66,7 +67,9 @@ def validate_params(params_json: str) -> AtlasParams:
         raise HTTPException(status_code=400, detail="Invalid missingShadowPolicy")
     if remove_color_threshold < 0 or remove_color_threshold > 255:
         raise HTTPException(status_code=400, detail="removeColorThreshold must be between 0 and 255")
-    
+    if not isinstance(tile_background_assignments, dict):
+        raise HTTPException(status_code=400, detail="tileBackgroundAssignments must be an object")
+
     return AtlasParams(
         tile_size=tile_size,
         width=width,
@@ -79,7 +82,8 @@ def validate_params(params_json: str) -> AtlasParams:
         missing_shadow_policy=missing_shadow_policy,
         use_background=use_background,
         skip_duplicate=skip_duplicate,
-        preview_max_width=preview_max_width
+        preview_max_width=preview_max_width,
+        tile_background_assignments=tile_background_assignments,
     )
 
 
@@ -105,65 +109,61 @@ def validate_files(images: List[UploadFile]) -> None:
         raise HTTPException(status_code=400, detail="Total upload size too large (max 200MB)")
 
 
+async def _read_upload_list(files: List[UploadFile]) -> Tuple[List[BytesIO], List[str]]:
+    blobs: List[BytesIO] = []
+    names: List[str] = []
+    for f in files:
+        content = await f.read()
+        blobs.append(BytesIO(content))
+        names.append(f.filename)
+    return blobs, names
+
+
 @app.post("/v1/atlas/preview")
 async def preview_atlas(
     images: List[UploadFile] = File(...),
     params: str = Form(...),
     shadowImages: List[UploadFile] = File(default=[]),
-    background: Optional[UploadFile] = File(default=None)
+    background: Optional[UploadFile] = File(default=None),
+    tileBackgrounds: List[UploadFile] = File(default=[]),
 ):
     """Generate atlas preview"""
     try:
-        # Validate inputs
         atlas_params = validate_params(params)
         validate_files(images)
-        
-        # Convert uploaded files to BytesIO
-        image_files = []
-        image_names = []
-        for img in images:
-            content = await img.read()
-            image_files.append(BytesIO(content))
-            image_names.append(img.filename)
-        
-        shadow_files = None
-        shadow_names = None
+
+        image_files, image_names = await _read_upload_list(images)
+
+        shadow_files = shadow_names = None
         if shadowImages:
-            shadow_files = []
-            shadow_names = []
-            for shadow in shadowImages:
-                content = await shadow.read()
-                shadow_files.append(BytesIO(content))
-                shadow_names.append(shadow.filename)
-        
+            shadow_files, shadow_names = await _read_upload_list(shadowImages)
+
         background_file = None
         if background:
-            content = await background.read()
-            background_file = BytesIO(content)
-        
-        # Process atlas
+            background_file = BytesIO(await background.read())
+
+        tile_bg_files = tile_bg_names = None
+        if tileBackgrounds:
+            tile_bg_files, tile_bg_names = await _read_upload_list(tileBackgrounds)
+
         processor = AtlasProcessor(atlas_params)
-        atlas, report = processor.process_images(
-            image_files, image_names, shadow_files, shadow_names, background_file
+        atlas, _report = processor.process_images(
+            image_files, image_names, shadow_files, shadow_names, background_file,
+            tile_bg_files, tile_bg_names,
         )
-        
-        # Create preview
+
         preview = processor.create_preview(atlas)
-        
-        # Convert to PNG bytes
+
         img_bytes = BytesIO()
         preview.save(img_bytes, format='PNG')
         img_bytes.seek(0)
-        
-        # Encode report for header
-        report_header = processor.encode_report()
-        
+
         return StreamingResponse(
             BytesIO(img_bytes.read()),
             media_type="image/png",
-            headers={"X-Atlas-Report": report_header}
+            headers={"X-Atlas-Report": processor.encode_report()}
         )
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -175,55 +175,45 @@ async def export_atlas(
     images: List[UploadFile] = File(...),
     params: str = Form(...),
     shadowImages: List[UploadFile] = File(default=[]),
-    background: Optional[UploadFile] = File(default=None)
+    background: Optional[UploadFile] = File(default=None),
+    tileBackgrounds: List[UploadFile] = File(default=[]),
 ):
     """Export final atlas"""
     try:
-        # Validate inputs
         atlas_params = validate_params(params)
-        atlas_params.preview_max_width = float('inf')  # No preview scaling for export
+        atlas_params.preview_max_width = float('inf')
         validate_files(images)
-        
-        # Convert uploaded files to BytesIO
-        image_files = []
-        image_names = []
-        for img in images:
-            content = await img.read()
-            image_files.append(BytesIO(content))
-            image_names.append(img.filename)
-        
-        shadow_files = None
-        shadow_names = None
+
+        image_files, image_names = await _read_upload_list(images)
+
+        shadow_files = shadow_names = None
         if shadowImages:
-            shadow_files = []
-            shadow_names = []
-            for shadow in shadowImages:
-                content = await shadow.read()
-                shadow_files.append(BytesIO(content))
-                shadow_names.append(shadow.filename)
-        
+            shadow_files, shadow_names = await _read_upload_list(shadowImages)
+
         background_file = None
         if background:
-            content = await background.read()
-            background_file = BytesIO(content)
-        
-        # Process atlas
+            background_file = BytesIO(await background.read())
+
+        tile_bg_files = tile_bg_names = None
+        if tileBackgrounds:
+            tile_bg_files, tile_bg_names = await _read_upload_list(tileBackgrounds)
+
         processor = AtlasProcessor(atlas_params)
-        atlas, report = processor.process_images(
-            image_files, image_names, shadow_files, shadow_names, background_file
+        atlas, _report = processor.process_images(
+            image_files, image_names, shadow_files, shadow_names, background_file,
+            tile_bg_files, tile_bg_names,
         )
-        
-        # Convert to PNG bytes
+
         img_bytes = BytesIO()
         atlas.save(img_bytes, format='PNG')
         img_bytes.seek(0)
-        
+
         return StreamingResponse(
             BytesIO(img_bytes.read()),
             media_type="image/png",
             headers={"Content-Disposition": "attachment; filename=atlas.png"}
         )
-        
+
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
@@ -247,6 +237,7 @@ async def save_workspace(
     images: List[UploadFile] = File(default=[]),
     shadowImages: List[UploadFile] = File(default=[]),
     background: Optional[UploadFile] = File(default=None),
+    tileBackgrounds: List[UploadFile] = File(default=[]),
     session: AsyncSession = Depends(get_session),
 ):
     """Save current workspace to database."""
@@ -270,10 +261,15 @@ async def save_workspace(
         content = await background.read()
         bg = (background.filename, content)
 
+    tile_bgs = []
+    for img in tileBackgrounds:
+        content = await img.read()
+        tile_bgs.append((img.filename, content))
+
     try:
         result = await workspace_service.save_workspace(
             session, name, params_dict, exportFilename,
-            sprites, shadows, bg, workspaceId
+            sprites, shadows, bg, workspaceId, tile_bgs,
         )
         return result
     except ValueError as e:

@@ -16,6 +16,7 @@ async def save_workspace(
     shadow_images: List[tuple],  # [(filename, bytes), ...]
     background: Optional[tuple], # (filename, bytes) or None
     workspace_id: Optional[str] = None,
+    tile_backgrounds: Optional[List[tuple]] = None,  # [(filename, bytes), ...]
 ) -> dict:
     """Save or update a workspace."""
     now = datetime.utcnow()
@@ -75,6 +76,16 @@ async def save_workspace(
             data=background[1],
         ))
 
+    if tile_backgrounds:
+        for i, (filename, data) in enumerate(tile_backgrounds):
+            session.add(WorkspaceImage(
+                workspace_id=workspace.id,
+                category="tile_background",
+                filename=filename,
+                sort_order=i,
+                data=data,
+            ))
+
     await session.commit()
     return {
         "id": workspace.id,
@@ -121,6 +132,7 @@ async def load_workspace(session: AsyncSession, workspace_id: str) -> dict:
     sprites = []
     shadows = []
     background = None
+    tile_backgrounds = []
     for img in images:
         entry = {
             "filename": img.filename,
@@ -132,6 +144,8 @@ async def load_workspace(session: AsyncSession, workspace_id: str) -> dict:
             shadows.append(entry)
         elif img.category == "background":
             background = entry
+        elif img.category == "tile_background":
+            tile_backgrounds.append(entry)
 
     return {
         "id": workspace.id,
@@ -141,6 +155,7 @@ async def load_workspace(session: AsyncSession, workspace_id: str) -> dict:
         "sprites": sprites,
         "shadowImages": shadows,
         "background": background,
+        "tileBackgrounds": tile_backgrounds,
         "created_at": workspace.created_at.isoformat(),
         "updated_at": workspace.updated_at.isoformat(),
     }

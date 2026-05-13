@@ -4,12 +4,15 @@ import FileList from './components/FileList';
 import ParameterPanel from './components/ParameterPanel';
 import SpritePlayer from './components/SpritePlayer';
 import WorkspaceBar from './components/WorkspaceBar';
+import TileBackgroundRow from './components/TileBackgroundRow';
 import './index.css';
 
 const App = () => {
   const [sprites, setSprites] = useState([]);
   const [shadowImages, setShadowImages] = useState([]);
   const [background, setBackground] = useState(null);
+  const [tileBackgrounds, setTileBackgrounds] = useState([]);
+  const [selectedSpriteNames, setSelectedSpriteNames] = useState(new Set());
   const [params, setParams] = useState({
     tileSize: 192,
     width: 6,
@@ -22,7 +25,8 @@ const App = () => {
     missingShadowPolicy: 'skipShadow',
     useBackground: false,
     skipDuplicate: true,
-    previewMaxWidth: 1024
+    previewMaxWidth: 1024,
+    tileBackgroundAssignments: {},
   });
   const [previewUrl, setPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -31,6 +35,46 @@ const App = () => {
   const [exportFilename, setExportFilename] = useState('atlas.png');
   const [workspaceId, setWorkspaceId] = useState(null);
   const [workspaceName, setWorkspaceName] = useState('');
+
+  // Keep selection in sync when sprites are removed.
+  useEffect(() => {
+    setSelectedSpriteNames(prev => {
+      const valid = new Set(sprites.map(s => s.name));
+      const next = new Set();
+      let changed = false;
+      prev.forEach(name => {
+        if (valid.has(name)) next.add(name); else changed = true;
+      });
+      return changed ? next : prev;
+    });
+  }, [sprites]);
+
+  const assignBackgroundToSelected = (bgFilename) => {
+    if (selectedSpriteNames.size === 0) return;
+    setParams(p => {
+      const next = { ...(p.tileBackgroundAssignments || {}) };
+      selectedSpriteNames.forEach(name => { next[name] = bgFilename; });
+      return { ...p, tileBackgroundAssignments: next };
+    });
+  };
+
+  const clearBackgroundFromSelected = () => {
+    if (selectedSpriteNames.size === 0) return;
+    setParams(p => {
+      const next = { ...(p.tileBackgroundAssignments || {}) };
+      selectedSpriteNames.forEach(name => { delete next[name]; });
+      return { ...p, tileBackgroundAssignments: next };
+    });
+  };
+
+  const removeTileBackground = (bgFilename) => {
+    setTileBackgrounds(prev => prev.filter(f => f.name !== bgFilename));
+    setParams(p => {
+      const next = { ...(p.tileBackgroundAssignments || {}) };
+      Object.keys(next).forEach(k => { if (next[k] === bgFilename) delete next[k]; });
+      return { ...p, tileBackgroundAssignments: next };
+    });
+  };
 
   const debounce = (func, wait) => {
     let timeout;
@@ -80,6 +124,14 @@ const App = () => {
         formData.append('background', background);
       }
 
+      // Add per-tile background images (only those actually referenced).
+      const usedBgNames = new Set(Object.values(params.tileBackgroundAssignments || {}));
+      tileBackgrounds.forEach(bg => {
+        if (usedBgNames.has(bg.name)) {
+          formData.append('tileBackgrounds', bg);
+        }
+      });
+
       // Add parameters
       formData.append('params', JSON.stringify(params));
 
@@ -125,7 +177,7 @@ const App = () => {
     } finally {
       setLoading(false);
     }
-  }, [sprites, shadowImages, background, params]); // Remove previewUrl from dependencies
+  }, [sprites, shadowImages, background, tileBackgrounds, params]); // Remove previewUrl from dependencies
 
   // Create a stable debounced function
   const debouncedPreviewRef = useRef();
@@ -144,7 +196,7 @@ const App = () => {
     if (debouncedPreviewRef.current) {
       debouncedPreviewRef.current();
     }
-  }, [sprites, shadowImages, background, params]);
+  }, [sprites, shadowImages, background, tileBackgrounds, params]);
 
   const exportAtlas = async () => {
     if (sprites.length === 0) return;
@@ -179,6 +231,14 @@ const App = () => {
       if (params.useBackground && background) {
         formData.append('background', background);
       }
+
+      // Add per-tile background images (only those actually referenced).
+      const usedBgNames = new Set(Object.values(params.tileBackgroundAssignments || {}));
+      tileBackgrounds.forEach(bg => {
+        if (usedBgNames.has(bg.name)) {
+          formData.append('tileBackgrounds', bg);
+        }
+      });
 
       // Add parameters (without preview scaling)
       const exportParams = { ...params, previewMaxWidth: Number.MAX_SAFE_INTEGER };
@@ -224,6 +284,7 @@ const App = () => {
     if (background) {
       formData.append('background', background);
     }
+    tileBackgrounds.forEach(bg => formData.append('tileBackgrounds', bg));
 
     const response = await fetch('/v1/workspace/save', {
       method: 'POST',
@@ -263,7 +324,10 @@ const App = () => {
       setSprites(data.sprites.map(toFile));
       setShadowImages(data.shadowImages.map(toFile));
       setBackground(data.background ? toFile(data.background) : null);
-      setParams(data.params);
+      setTileBackgrounds((data.tileBackgrounds || []).map(toFile));
+      setSelectedSpriteNames(new Set());
+      const loadedParams = { tileBackgroundAssignments: {}, ...data.params };
+      setParams(loadedParams);
       setExportFilename(data.export_filename || 'atlas.png');
       setWorkspaceId(data.id);
       setWorkspaceName(data.name);
@@ -340,7 +404,14 @@ const App = () => {
               )}
             </FileUpload>
             {sprites.length > 0 && (
-              <FileList files={sprites} onFilesChange={setSprites} />
+              <FileList
+                files={sprites}
+                onFilesChange={setSprites}
+                selectable
+                selectedFilenames={selectedSpriteNames}
+                onSelectionChange={setSelectedSpriteNames}
+                getBadge={(file) => params.tileBackgroundAssignments?.[file.name] || null}
+              />
             )}
           </div>
 
@@ -374,6 +445,54 @@ const App = () => {
                 <p>Drag and drop background image here (optional)</p>
               )}
             </FileUpload>
+          </div>
+
+          {/* Tile Backgrounds Section */}
+          <div className="section">
+            <h2>Tile Backgrounds</h2>
+            <p className="hint">
+              Per-sprite backgrounds. Select sprites above, then click "Assign" on a background.
+              Per-tile backgrounds override the global background.
+            </p>
+            <FileUpload
+              onFilesAdded={(files) => setTileBackgrounds(prev => {
+                const existingNames = new Set(prev.map(f => f.name));
+                const incoming = files.filter(f => !existingNames.has(f.name));
+                return [...prev, ...incoming];
+              })}
+            >
+              <p>Drag and drop tile background images here</p>
+            </FileUpload>
+            {selectedSpriteNames.size > 0 && (
+              <div className="tile-bg-toolbar">
+                <span>{selectedSpriteNames.size} sprite(s) selected</span>
+                <button
+                  type="button"
+                  className="tile-bg-clear-btn"
+                  onClick={clearBackgroundFromSelected}
+                >
+                  Clear background from selected
+                </button>
+              </div>
+            )}
+            {tileBackgrounds.length > 0 && (
+              <div className="tile-bg-list">
+                {tileBackgrounds.map(bg => {
+                  const usageCount = Object.values(params.tileBackgroundAssignments || {})
+                    .filter(v => v === bg.name).length;
+                  return (
+                    <TileBackgroundRow
+                      key={bg.name}
+                      file={bg}
+                      usageCount={usageCount}
+                      canAssign={selectedSpriteNames.size > 0}
+                      onAssign={() => assignBackgroundToSelected(bg.name)}
+                      onRemove={() => removeTileBackground(bg.name)}
+                    />
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Parameters Section */}
