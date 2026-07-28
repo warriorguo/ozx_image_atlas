@@ -5,7 +5,19 @@ import ParameterPanel from './components/ParameterPanel';
 import SpritePlayer from './components/SpritePlayer';
 import WorkspaceBar from './components/WorkspaceBar';
 import TileBackgroundRow from './components/TileBackgroundRow';
+import { unzipStored } from './utils/zip';
 import './index.css';
+
+const downloadBlob = (blob, filename) => {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+};
 
 const App = () => {
   const [sprites, setSprites] = useState([]);
@@ -27,6 +39,7 @@ const App = () => {
     skipDuplicate: true,
     previewMaxWidth: 1024,
     tileBackgroundAssignments: {},
+    exportLayerMode: 'separate',
   });
   const [previewUrl, setPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -243,6 +256,7 @@ const App = () => {
       // Add parameters (without preview scaling)
       const exportParams = { ...params, previewMaxWidth: Number.MAX_SAFE_INTEGER };
       formData.append('params', JSON.stringify(exportParams));
+      formData.append('exportFilename', filename);
 
       const response = await fetch('/v1/atlas/export', {
         method: 'POST',
@@ -254,16 +268,16 @@ const App = () => {
         throw new Error(errorData.detail || 'Export failed');
       }
 
-      // Download the file
       const blob = await response.blob();
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+
+      // Layered export arrives as an archive holding the sprite and shadow
+      // sheets; save them as two files rather than handing over the zip.
+      if (params.exportLayerMode === 'separate') {
+        const entries = await unzipStored(blob);
+        entries.forEach(entry => downloadBlob(entry.blob, entry.name));
+      } else {
+        downloadBlob(blob, filename);
+      }
     } catch (err) {
       setError(err.message);
     } finally {
@@ -326,7 +340,11 @@ const App = () => {
       setBackground(data.background ? toFile(data.background) : null);
       setTileBackgrounds((data.tileBackgrounds || []).map(toFile));
       setSelectedSpriteNames(new Set());
-      const loadedParams = { tileBackgroundAssignments: {}, ...data.params };
+      const loadedParams = {
+        tileBackgroundAssignments: {},
+        exportLayerMode: 'separate',
+        ...data.params,
+      };
       setParams(loadedParams);
       setExportFilename(data.export_filename || 'atlas.png');
       setWorkspaceId(data.id);
@@ -543,6 +561,29 @@ const App = () => {
                 placeholder="atlas.png"
               />
             </div>
+            <div className="param-item">
+              <label htmlFor="export-layer-mode">Layers</label>
+              <select
+                id="export-layer-mode"
+                value={params.exportLayerMode}
+                onChange={(e) => setParams(p => ({ ...p, exportLayerMode: e.target.value }))}
+              >
+                <option value="separate">Separate sprite &amp; shadow sheets</option>
+                <option value="combined">Single merged sheet</option>
+              </select>
+            </div>
+            <p className="hint">
+              {params.exportLayerMode === 'separate' ? (
+                <>
+                  Exports two aligned sheets: the sprites, and a
+                  {' '}<code>_shadow</code> sheet carrying the shadows
+                  {' '}<strong>and the backgrounds</strong>. The preview above always
+                  shows them merged.
+                </>
+              ) : (
+                'Exports one sheet with sprites, shadows and backgrounds merged.'
+              )}
+            </p>
             <button
               className="export-button"
               onClick={exportAtlas}
