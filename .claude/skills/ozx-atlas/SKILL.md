@@ -28,7 +28,7 @@ The frontend SPA also lives at this host. Routes:
 | GET    | `/v1/workspace/{id}`       | Load a workspace + its image blobs   |
 | DELETE | `/v1/workspace/{id}`       | Delete a workspace                   |
 
-Both atlas endpoints respond with a PNG body. Preview also returns an `X-Atlas-Report` header containing a base64-encoded JSON object describing what was ignored, what shadows were missing, and which were ambiguous — surface this report to the user when packing fails or seems incomplete; it's the only feedback they get on rejected sprites.
+Preview always responds with a PNG body. Export responds with a PNG when `exportLayerMode` is `"combined"`, and with a ZIP holding two PNGs (`<name>.png` and `<name>_shadow.png`) in the default `"separate"` mode. Both endpoints return an `X-Atlas-Report` header containing a base64-encoded JSON object describing what was ignored, what shadows were missing, and which were ambiguous — surface this report to the user when packing fails or seems incomplete; it's the only feedback they get on rejected sprites.
 
 ## How to use this skill
 
@@ -39,7 +39,7 @@ Typical flow:
 1. Resolve the user's input — a directory of sprite PNGs, optionally a directory of shadow PNGs, optionally a single background image. If the user has already given you a path or a glob, use it; otherwise ask once.
 2. Decide preview vs. export. If unspecified: preview first when the user is iterating on params, export when they say "save", "export", "final", or specify an output filename.
 3. Build the params dict (see "Parameters" below). Start from sane defaults and only override what the user mentioned.
-4. Run the helper script. Save the PNG where the user expects it (default: alongside the sprite folder as `atlas.png`). Decode and report the `X-Atlas-Report` summary.
+4. Run the helper script. Save the PNG where the user expects it (default: alongside the sprite folder as `atlas.png`). A layered export writes a second file next to it — report both paths. Decode and report the `X-Atlas-Report` summary.
 5. If sprites were ignored or shadow matches were missing/ambiguous, tell the user concretely (filenames + reason). Do not silently drop them.
 
 ## Parameters
@@ -60,6 +60,7 @@ The `params` JSON object accepted by `/v1/atlas/preview` and `/v1/atlas/export`:
 | `useBackground`         | bool    | `false`       | When true, expect a `background` file and tile it under each sprite. |
 | `skipDuplicate`         | bool    | `true`        | Skip an input image if it's pixel-identical to the previous one. |
 | `previewMaxWidth`       | int     | `1024`        | Preview-only — maximum output width before downscale.            |
+| `exportLayerMode`       | string  | `"separate"`  | Export-only — `"separate"` returns two aligned sheets (sprites, and a `_shadow` sheet carrying the shadows **and the backgrounds**); `"combined"` returns one merged sheet. Preview ignores this and always renders the merged image. |
 
 For export, `previewMaxWidth` is forced to infinity by the server, so leaving it at the default is fine.
 
@@ -82,7 +83,8 @@ python scripts/atlas_client.py preview \
     --tile-size 192 --width 6 --outline 4 --shadow-scale 1.1
 ```
 
-Export with shadow images and a background:
+Export with shadow images and a background. By default this writes **two** files —
+`atlas.png` (sprites only) and `atlas_shadow.png` (shadows plus the backgrounds):
 
 ```bash
 python scripts/atlas_client.py export \
@@ -93,16 +95,22 @@ python scripts/atlas_client.py export \
     --out /path/to/atlas.png
 ```
 
+Add `--export-layer-mode combined` to get a single merged sheet instead.
+
 The script prints a JSON summary to stdout after a successful call:
 
 ```json
 {
   "ok": true,
-  "out": "/tmp/atlas_preview.png",
+  "out": "/path/to/atlas.png",
+  "outputs": ["/path/to/atlas.png", "/path/to/atlas_shadow.png"],
+  "layered": true,
   "bytes": 184213,
   "report": {"ignored": [...], "shadowMissing": [...], "shadowAmbiguous": [...]}
 }
 ```
+
+`outputs` lists every file written — tell the user about both sheets, not just `out`.
 
 On failure it exits non-zero and prints the server's error body. Pass `--base-url` (or set `OZX_ATLAS_URL`) to target a different deployment.
 

@@ -13,6 +13,8 @@ import json
 import mimetypes
 import os
 import sys
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Iterable, Optional
 from urllib.parse import urljoin, urlparse
@@ -116,6 +118,8 @@ def _params_from_args(args, *, for_export: bool) -> dict:
         "useBackground": True if args.use_background else None,
         "skipDuplicate": False if args.no_skip_duplicate else None,
         "previewMaxWidth": args.preview_max_width,
+        # Preview is always the merged image, so this only travels with export.
+        "exportLayerMode": args.export_layer_mode if for_export else None,
     }
     for k, v in overrides.items():
         if v is not None:
@@ -143,23 +147,41 @@ def _post_atlas(args, kind: str) -> int:
     if args.use_background and not background:
         raise SystemExit("--use-background set but --background file not provided")
 
+    out_path = Path(args.out)
+
     files = _build_files(sprites, shadows, background)
     data = {"params": json.dumps(params)}
+    if kind == "export":
+        # Drives the names inside the ZIP for layered exports.
+        data["exportFilename"] = out_path.name
 
     resp = requests.post(url, data=data, files=files, verify=_verify_for(url), timeout=600)
     if resp.status_code != 200:
         sys.stderr.write(f"HTTP {resp.status_code} from {url}\n{resp.text}\n")
         return 2
 
-    out_path = Path(args.out)
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    out_path.write_bytes(resp.content)
+
+    # A layered export comes back as a ZIP holding the sprite and shadow sheets;
+    # unpack both next to the requested --out path.
+    written: list[Path] = []
+    if "zip" in resp.headers.get("Content-Type", "").lower():
+        with zipfile.ZipFile(BytesIO(resp.content)) as archive:
+            for name in archive.namelist():
+                dest = out_path.parent / Path(name).name
+                dest.write_bytes(archive.read(name))
+                written.append(dest)
+    else:
+        out_path.write_bytes(resp.content)
+        written.append(out_path)
 
     report = _decode_report(resp.headers)
     summary = {
         "ok": True,
         "endpoint": kind,
-        "out": str(out_path),
+        "out": str(written[0]),
+        "outputs": [str(p) for p in written],
+        "layered": len(written) > 1,
         "bytes": len(resp.content),
         "input_count": len(sprites),
         "shadow_count": len(shadows) if shadows else 0,
@@ -170,9 +192,8 @@ def _post_atlas(args, kind: str) -> int:
     # Try to add image dimensions if Pillow is available — purely cosmetic.
     try:
         from PIL import Image
-        from io import BytesIO
 
-        with Image.open(BytesIO(resp.content)) as im:
+        with Image.open(written[0]) as im:
             summary["dimensions"] = f"{im.width}x{im.height}"
     except Exception:
         pass
@@ -302,7 +323,8 @@ def _add_atlas_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--sprites", required=True, help="folder of sprite images")
     p.add_argument("--shadows", help="folder of shadow images (with --use-shadow-images)")
     p.add_argument("--background", help="single background image (with --use-background)")
-    p.add_argument("--out", required=True, help="output PNG path")
+    p.add_argument("--out", required=True,
+                   help="output PNG path; a layered export also writes <name>_shadow.png beside it")
     p.add_argument("--base-url", help="override OZX_ATLAS_URL")
     p.add_argument("--params-json", help="full params dict as JSON; flags below override its keys")
     p.add_argument("--tile-size", type=int)
@@ -317,6 +339,13 @@ def _add_atlas_args(p: argparse.ArgumentParser) -> None:
     p.add_argument("--use-background", action="store_true")
     p.add_argument("--no-skip-duplicate", action="store_true")
     p.add_argument("--preview-max-width", type=int)
+    p.add_argument(
+        "--export-layer-mode",
+        choices=["separate", "combined"],
+        help=("export only: 'separate' (server default) writes a sprite sheet plus a "
+              "'_shadow' sheet carrying shadows and backgrounds; 'combined' writes one "
+              "merged sheet"),
+    )
 
 
 def main(argv: Optional[Iterable[str]] = None) -> int:

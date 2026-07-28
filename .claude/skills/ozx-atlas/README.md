@@ -30,14 +30,35 @@ python3 .claude/skills/ozx-atlas/scripts/atlas_client.py preview \
     --out /tmp/preview.png \
     --tile-size 192 --width 6 --outline 4 --shadow-scale 1.1
 
-# Final export, with shadow matching and a background tile
+# Final export, with shadow matching and a background tile.
+# Writes assets/hero_atlas.png (sprites) and assets/hero_atlas_shadow.png
+# (shadows + backgrounds) — two aligned sheets, the default.
 python3 .claude/skills/ozx-atlas/scripts/atlas_client.py export \
     --sprites ~/Downloads/hero_frames \
     --shadows ~/Downloads/hero_shadows \
     --background ~/Downloads/grass.png \
     --use-shadow-images --use-background --shadow-scale 1.1 \
     --out assets/hero_atlas.png
+
+# Same, but merged into a single sheet
+python3 .claude/skills/ozx-atlas/scripts/atlas_client.py export \
+    --sprites ~/Downloads/hero_frames \
+    --export-layer-mode combined \
+    --out assets/hero_atlas.png
 ```
+
+### Sprite and shadow sheets
+
+Export defaults to `--export-layer-mode separate`: two sheets on the same grid, so
+cell *n* of one lines up with cell *n* of the other.
+
+| Sheet                 | Contains                                    |
+|-----------------------|---------------------------------------------|
+| `<name>.png`          | The sprites only — no shadow, no background |
+| `<name>_shadow.png`   | The shadows **and** the backgrounds (global and per-tile) |
+
+Use `--export-layer-mode combined` for the old single-image behavior. Previews are
+unaffected — they always show the merged result.
 
 The script prints a JSON summary to stdout on success:
 
@@ -46,6 +67,8 @@ The script prints a JSON summary to stdout on success:
   "ok": true,
   "endpoint": "preview",
   "out": "/tmp/preview.png",
+  "outputs": ["/tmp/preview.png"],
+  "layered": false,
   "bytes": 184213,
   "input_count": 24,
   "shadow_count": 24,
@@ -103,6 +126,7 @@ python3 .claude/skills/ozx-atlas/scripts/atlas_client.py workspace delete <uuid>
 | `--use-background`            | `useBackground`        | `false`        | Tile `--background` under each sprite.                   |
 | `--no-skip-duplicate`         | `skipDuplicate`        | true           | By default consecutive identical inputs are skipped.     |
 | `--preview-max-width N`       | `previewMaxWidth`      | `1024`         | Preview-only downscale ceiling.                          |
+| `--export-layer-mode M`       | `exportLayerMode`      | `separate`     | Export-only. `separate` = sprite sheet + `_shadow` sheet; `combined` = one merged sheet. |
 | `--params-json '{...}'`       | (whole dict)           | —              | Apply a full params dict; flags above override its keys. |
 
 ### Shadow filename matching

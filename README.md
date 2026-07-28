@@ -9,7 +9,7 @@ A web-based tool for creating image atlases using Python PIL backend and React f
 - **Shadow support** - Two modes: scale-based shadows or separate shadow images
 - **Background image support** - Optional background tiling
 - **Real-time preview** - See changes instantly
-- **Export to PNG** - Download the final atlas
+- **Export to PNG** - Download the final atlas, as separate sprite and shadow sheets (default) or one merged sheet
 
 ## Quick Start
 
@@ -52,7 +52,10 @@ python3 test_setup.py
    - Set "Shadow Scale" > 0 for automatic shadows
 4. **Add Background** (optional): Enable "Use Background" and import a background image
 5. **Preview**: The atlas updates in real-time as you make changes
-6. **Export**: Click "Export Atlas" to download the final PNG
+6. **Export**: Pick the layer mode, then click "Export Atlas"
+   - *Separate sprite & shadow sheets* (default): downloads `atlas.png` (sprites only) and `atlas_shadow.png` (shadows **and** backgrounds), aligned cell for cell
+   - *Single merged sheet*: downloads one `atlas.png` with everything composited
+   - The preview always shows the merged result, whichever mode is selected
 
 ## Shadow Image Matching
 
@@ -77,7 +80,7 @@ When using shadow images, the tool automatically matches sprites with shadows ba
 ## API Endpoints
 
 - `POST /v1/atlas/preview` - Generate preview atlas
-- `POST /v1/atlas/export` - Export final atlas
+- `POST /v1/atlas/export` - Export final atlas (ZIP of both sheets, or a single PNG with `exportLayerMode: "combined"`)
 - `GET /` - Health check
 
 ## Requirements
