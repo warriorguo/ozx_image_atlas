@@ -125,9 +125,9 @@ def make_transparent(img, replace_color, threshold=3):
     return img
 
 
-def add_shadow_scale(original, offset=(0, 0), background_color=(255, 255, 255, 0), 
-                    shadow_color=(0, 0, 0), blur_radius=10, shadow_scale=1.1):
-    """Add a scaled shadow to an image"""
+def render_shadow_scale(original, offset=(0, 0), background_color=(255, 255, 255, 0),
+                        shadow_color=(0, 0, 0), blur_radius=10, shadow_scale=1.1):
+    """Render only the synthesized shadow of an image, at the image's own size."""
     alpha = original.split()[3]
     shadow_size = (int(original.size[0] * shadow_scale), int(original.size[1] * shadow_scale))
     shadow_mask = alpha.resize(shadow_size, Image.LANCZOS)
@@ -140,13 +140,24 @@ def add_shadow_scale(original, offset=(0, 0), background_color=(255, 255, 255, 0
     original_pos = ((original.size[0] - shadow_size[0]) // 2, (original.size[1] - shadow_size[1]) // 2)
 
     background.paste(shadow, original_pos, shadow)
+
+    return background
+
+
+def add_shadow_scale(original, offset=(0, 0), background_color=(255, 255, 255, 0),
+                    shadow_color=(0, 0, 0), blur_radius=10, shadow_scale=1.1):
+    """Add a scaled shadow to an image"""
+    background = render_shadow_scale(
+        original, offset=offset, background_color=background_color,
+        shadow_color=shadow_color, blur_radius=blur_radius, shadow_scale=shadow_scale,
+    )
     background.paste(original, (0, 0), original)
 
     return background
 
 
-def add_shadow_file(img, shadow_img, shadow_scale=1.0):
-    """Add a shadow from another image, scaled relative to the sprite size."""
+def render_shadow_file(img, shadow_img, shadow_scale=1.0):
+    """Render only the shadow image for a sprite, at the sprite's own size."""
     if shadow_scale <= 0:
         shadow_scale = 1.0
 
@@ -159,6 +170,13 @@ def add_shadow_file(img, shadow_img, shadow_scale=1.0):
     background = Image.new("RGBA", img.size, (0, 0, 0, 0))
     pos = ((img.size[0] - shadow_size[0]) // 2, (img.size[1] - shadow_size[1]) // 2)
     background.paste(shadow_processed, pos, shadow_processed)
+
+    return background
+
+
+def add_shadow_file(img, shadow_img, shadow_scale=1.0):
+    """Add a shadow from another image, scaled relative to the sprite size."""
+    background = render_shadow_file(img, shadow_img, shadow_scale=shadow_scale)
     background.paste(img, (0, 0), img)
 
     return background

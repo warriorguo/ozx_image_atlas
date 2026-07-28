@@ -9,8 +9,9 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '../../backend'))
 
 import asyncio
 import json
+import zipfile
 from io import BytesIO
-from PIL import Image
+from PIL import Image, ImageChops
 import httpx
 import pytest
 
@@ -144,9 +145,10 @@ async def test_export_vs_preview():
     params = {
         "tileSize": 52,
         "width": 3,
-        "previewMaxWidth": 9999  # Set high to avoid scaling
+        "previewMaxWidth": 9999,  # Set high to avoid scaling
+        "exportLayerMode": "combined"  # Compare like for like with the preview
     }
-    
+
     async with httpx.AsyncClient() as client:
         files = {"images": [("test.png", test_img, "image/png")]}
         data = {"params": json.dumps(params)}
@@ -166,6 +168,48 @@ async def test_export_vs_preview():
         
         # Should be same size when no scaling
         assert preview_img.size == export_img.size
+
+
+@pytest.mark.asyncio
+async def test_layered_export():
+    """Default export returns two aligned sheets that recompose into the preview"""
+    base_url = "http://localhost:8000"
+
+    test_img = create_test_image((52, 52), (255, 0, 0, 255))
+
+    params = {
+        "tileSize": 52,
+        "width": 3,
+        "previewMaxWidth": 9999,
+        "shadowScale": 1.2,
+    }
+
+    async with httpx.AsyncClient() as client:
+        files = [("images", ("test.png", test_img, "image/png"))]
+        data = {"params": json.dumps(params), "exportFilename": "hero.png"}
+
+        response = await client.post(f"{base_url}/v1/atlas/export", files=files, data=data)
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "application/zip"
+
+        with zipfile.ZipFile(BytesIO(response.content)) as archive:
+            assert archive.namelist() == ["hero.png", "hero_shadow.png"]
+            sprite = Image.open(BytesIO(archive.read("hero.png"))).convert("RGBA")
+            shadow = Image.open(BytesIO(archive.read("hero_shadow.png"))).convert("RGBA")
+
+        assert sprite.size == shadow.size
+
+        # Merged export is exactly the two layers stacked.
+        merged_params = dict(params, exportLayerMode="combined")
+        merged_response = await client.post(
+            f"{base_url}/v1/atlas/export",
+            files=[("images", ("test.png", test_img, "image/png"))],
+            data={"params": json.dumps(merged_params)},
+        )
+        assert merged_response.status_code == 200
+        merged = Image.open(BytesIO(merged_response.content)).convert("RGBA")
+
+        assert ImageChops.difference(Image.alpha_composite(shadow, sprite), merged).getbbox() is None
 
 
 @pytest.mark.asyncio

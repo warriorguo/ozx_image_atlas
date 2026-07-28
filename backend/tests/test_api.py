@@ -4,6 +4,7 @@ from fastapi.testclient import TestClient
 from PIL import Image
 from io import BytesIO
 import json
+import zipfile
 
 from main import app
 
@@ -141,23 +142,99 @@ def test_preview_endpoint_with_background():
 
 
 def test_export_endpoint_basic():
-    """Test basic export functionality"""
+    """Test basic export functionality in combined mode"""
     test_image = create_test_image_bytes()
-    
+
     params = json.dumps({
         "tileSize": 52,
-        "width": 6
+        "width": 6,
+        "exportLayerMode": "combined"
     })
-    
+
     response = client.post(
         "/v1/atlas/export",
         data={"params": params},
         files=[("images", ("test.png", test_image, "image/png"))]
     )
-    
+
     assert response.status_code == 200
     assert response.headers["content-type"] == "image/png"
     assert "attachment; filename=atlas.png" in response.headers["content-disposition"]
+
+
+def test_export_endpoint_defaults_to_separate_layers():
+    """Export without exportLayerMode returns a ZIP with both layers"""
+    test_image = create_test_image_bytes()
+
+    params = json.dumps({"tileSize": 52, "width": 6})
+
+    response = client.post(
+        "/v1/atlas/export",
+        data={"params": params},
+        files=[("images", ("test.png", test_image, "image/png"))]
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/zip"
+    assert "attachment; filename=atlas.zip" in response.headers["content-disposition"]
+
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["atlas.png", "atlas_shadow.png"]
+        sprite = Image.open(BytesIO(archive.read("atlas.png")))
+        shadow = Image.open(BytesIO(archive.read("atlas_shadow.png")))
+        assert sprite.size == shadow.size
+
+
+def test_export_separate_layers_uses_export_filename():
+    """The shadow sheet is named after the requested export filename"""
+    test_image = create_test_image_bytes()
+
+    params = json.dumps({"tileSize": 52, "width": 6, "exportLayerMode": "separate"})
+
+    response = client.post(
+        "/v1/atlas/export",
+        data={"params": params, "exportFilename": "hero_run.png"},
+        files=[("images", ("test.png", test_image, "image/png"))]
+    )
+
+    assert response.status_code == 200
+    assert "attachment; filename=hero_run.zip" in response.headers["content-disposition"]
+    with zipfile.ZipFile(BytesIO(response.content)) as archive:
+        assert archive.namelist() == ["hero_run.png", "hero_run_shadow.png"]
+
+
+def test_export_rejects_invalid_layer_mode():
+    """Unknown exportLayerMode values are rejected"""
+    test_image = create_test_image_bytes()
+
+    params = json.dumps({"tileSize": 52, "width": 6, "exportLayerMode": "both"})
+
+    response = client.post(
+        "/v1/atlas/export",
+        data={"params": params},
+        files=[("images", ("test.png", test_image, "image/png"))]
+    )
+
+    assert response.status_code == 400
+
+
+def test_preview_ignores_export_layer_mode():
+    """Preview is always the merged image, whatever the export mode says"""
+    test_image = create_test_image_bytes()
+    base_params = {"tileSize": 52, "width": 6, "shadowScale": 1.2}
+
+    previews = []
+    for mode in ("separate", "combined"):
+        response = client.post(
+            "/v1/atlas/preview",
+            data={"params": json.dumps({**base_params, "exportLayerMode": mode})},
+            files=[("images", ("test.png", test_image, "image/png"))]
+        )
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "image/png"
+        previews.append(response.content)
+
+    assert previews[0] == previews[1]
 
 
 def test_invalid_parameters():

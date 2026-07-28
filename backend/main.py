@@ -4,6 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional, Tuple
 from contextlib import asynccontextmanager
 import json
+import os
+import zipfile
 from io import BytesIO
 
 from atlas_service import AtlasProcessor, AtlasParams
@@ -51,6 +53,7 @@ def validate_params(params_json: str) -> AtlasParams:
     skip_duplicate = params_dict.get("skipDuplicate", True)
     preview_max_width = params_dict.get("previewMaxWidth", 1024)
     tile_background_assignments = params_dict.get("tileBackgroundAssignments", {}) or {}
+    export_layer_mode = params_dict.get("exportLayerMode", "separate")
 
     # Validation
     if tile_size <= 0 or tile_size > 512:
@@ -69,6 +72,8 @@ def validate_params(params_json: str) -> AtlasParams:
         raise HTTPException(status_code=400, detail="removeColorThreshold must be between 0 and 255")
     if not isinstance(tile_background_assignments, dict):
         raise HTTPException(status_code=400, detail="tileBackgroundAssignments must be an object")
+    if export_layer_mode not in ["separate", "combined"]:
+        raise HTTPException(status_code=400, detail="exportLayerMode must be 'separate' or 'combined'")
 
     return AtlasParams(
         tile_size=tile_size,
@@ -84,6 +89,7 @@ def validate_params(params_json: str) -> AtlasParams:
         skip_duplicate=skip_duplicate,
         preview_max_width=preview_max_width,
         tile_background_assignments=tile_background_assignments,
+        export_layer_mode=export_layer_mode,
     )
 
 
@@ -164,21 +170,44 @@ async def preview_atlas(
             headers={"X-Atlas-Report": processor.encode_report()}
         )
 
+    except HTTPException:
+        # Validation errors already carry their own status code.
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
+def _png_bytes(img) -> bytes:
+    buf = BytesIO()
+    img.save(buf, format='PNG')
+    return buf.getvalue()
+
+
+def _export_names(export_filename: str) -> Tuple[str, str, str]:
+    """Derive (sprite png, shadow png, zip) names from the requested filename."""
+    base = os.path.basename((export_filename or "").strip())
+    stem = base[:-4] if base.lower().endswith(".png") else base
+    if not stem:
+        stem = "atlas"
+    return f"{stem}.png", f"{stem}_shadow.png", f"{stem}.zip"
+
+
 @app.post("/v1/atlas/export")
 async def export_atlas(
     images: List[UploadFile] = File(...),
     params: str = Form(...),
+    exportFilename: str = Form("atlas.png"),
     shadowImages: List[UploadFile] = File(default=[]),
     background: Optional[UploadFile] = File(default=None),
     tileBackgrounds: List[UploadFile] = File(default=[]),
 ):
-    """Export final atlas"""
+    """Export final atlas.
+
+    With `exportLayerMode: "separate"` (the default) the response is a ZIP holding
+    the sprite sheet and the shadow sheet; with `"combined"` it is a single PNG.
+    """
     try:
         atlas_params = validate_params(params)
         atlas_params.preview_max_width = float('inf')
@@ -199,21 +228,48 @@ async def export_atlas(
             tile_bg_files, tile_bg_names = await _read_upload_list(tileBackgrounds)
 
         processor = AtlasProcessor(atlas_params)
+        sprite_name, shadow_name, zip_name = _export_names(exportFilename)
+
+        if atlas_params.export_layer_mode == "separate":
+            atlas, shadow_atlas, _report = processor.process_layers(
+                image_files, image_names, shadow_files, shadow_names, background_file,
+                tile_bg_files, tile_bg_names,
+            )
+
+            zip_bytes = BytesIO()
+            # Stored, not deflated: PNGs are already compressed, and it keeps the
+            # archive trivial for the frontend to unpack without a zip library.
+            with zipfile.ZipFile(zip_bytes, "w", zipfile.ZIP_STORED) as archive:
+                archive.writestr(sprite_name, _png_bytes(atlas))
+                archive.writestr(shadow_name, _png_bytes(shadow_atlas))
+            zip_bytes.seek(0)
+
+            return StreamingResponse(
+                zip_bytes,
+                media_type="application/zip",
+                headers={
+                    "Content-Disposition": f"attachment; filename={zip_name}",
+                    "X-Atlas-Report": processor.encode_report(),
+                }
+            )
+
         atlas, _report = processor.process_images(
             image_files, image_names, shadow_files, shadow_names, background_file,
             tile_bg_files, tile_bg_names,
         )
 
-        img_bytes = BytesIO()
-        atlas.save(img_bytes, format='PNG')
-        img_bytes.seek(0)
-
         return StreamingResponse(
-            BytesIO(img_bytes.read()),
+            BytesIO(_png_bytes(atlas)),
             media_type="image/png",
-            headers={"Content-Disposition": "attachment; filename=atlas.png"}
+            headers={
+                "Content-Disposition": f"attachment; filename={sprite_name}",
+                "X-Atlas-Report": processor.encode_report(),
+            }
         )
 
+    except HTTPException:
+        # Validation errors already carry their own status code.
+        raise
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:

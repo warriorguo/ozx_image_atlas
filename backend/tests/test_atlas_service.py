@@ -209,3 +209,71 @@ def test_encode_report():
     assert "ignored" in decoded
     assert "shadowMissing" in decoded
     assert "shadowAmbiguous" in decoded
+
+# ── Layered export ───────────────────────────────────────────────────
+
+def test_process_layers_splits_shadow_from_sprite():
+    """Sprite sheet holds no shadow; shadow sheet holds no sprite."""
+    params = AtlasParams(tile_size=52, width=6, shadow_scale=1.2)
+    processor = AtlasProcessor(params)
+
+    sprite_atlas, shadow_atlas, _report = processor.process_layers(
+        [create_test_image_file()], ["sprite.png"]
+    )
+
+    assert sprite_atlas.size == shadow_atlas.size
+
+    # The sprite is an opaque red square: it must survive intact on the sprite
+    # layer, and must not bleed any red into the shadow layer.
+    assert sprite_atlas.getpixel((26, 26)) == (255, 0, 0, 255)
+    shadow_pixel = shadow_atlas.getpixel((26, 26))
+    assert shadow_pixel[:3] == (0, 0, 0)
+    assert shadow_pixel[3] > 0
+
+
+def test_process_layers_without_shadow_yields_transparent_layer():
+    """No shadow configured still produces an aligned, empty shadow sheet."""
+    params = AtlasParams(tile_size=52, width=6)
+    processor = AtlasProcessor(params)
+
+    sprite_atlas, shadow_atlas, _report = processor.process_layers(
+        [create_test_image_file()], ["sprite.png"]
+    )
+
+    assert sprite_atlas.size == shadow_atlas.size
+    assert shadow_atlas.getbbox() is None
+
+
+def test_process_layers_puts_background_on_shadow_layer():
+    """Background rides with the shadow, not with the sprite."""
+    params = AtlasParams(tile_size=52, width=6, use_background=True)
+    processor = AtlasProcessor(params)
+
+    background = create_test_image_file(color=(0, 0, 255, 255))
+    # A sprite smaller than the tile leaves background visible around it.
+    sprite = create_test_image_file(size=(52, 52), color=(255, 0, 0, 255))
+
+    sprite_atlas, shadow_atlas, _report = processor.process_layers(
+        [sprite], ["sprite.png"], background_file=background
+    )
+
+    assert shadow_atlas.getpixel((26, 26)) == (0, 0, 255, 255)
+    assert sprite_atlas.getpixel((26, 26)) == (255, 0, 0, 255)
+
+
+def test_process_layers_grid_matches_combined():
+    """Layered and combined runs lay sprites out on the same grid."""
+    images = [create_test_image_file(color=(255, 0, 0, 255)),
+              create_test_image_file(color=(0, 255, 0, 255)),
+              create_test_image_file(color=(0, 0, 255, 255))]
+    names = ["a.png", "b.png", "c.png"]
+
+    combined, _ = AtlasProcessor(AtlasParams(tile_size=52, width=2)).process_images(
+        [BytesIO(f.getvalue()) for f in images], names
+    )
+    sprite_atlas, shadow_atlas, _ = AtlasProcessor(AtlasParams(tile_size=52, width=2)).process_layers(
+        [BytesIO(f.getvalue()) for f in images], names
+    )
+
+    assert sprite_atlas.size == combined.size == shadow_atlas.size
+    assert list(sprite_atlas.getdata()) == list(combined.getdata())
