@@ -161,6 +161,11 @@ package-lock.json
 yarn.lock
 pnpm-lock.yaml
 
+# ...except the frontend lock: the Docker build copies package*.json and runs
+# npm install, so without it every build re-resolves dependency ranges and the
+# same source can build one month and fail the next.
+!frontend/package-lock.json
+
 # Snowpack dependency directory (https://snowpack.dev/)
 web_modules/
 
