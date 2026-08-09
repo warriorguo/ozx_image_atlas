@@ -6,6 +6,12 @@ import SpritePlayer from './components/SpritePlayer';
 import WorkspaceBar from './components/WorkspaceBar';
 import TileBackgroundRow from './components/TileBackgroundRow';
 import { unzipStored } from './utils/zip';
+import {
+  DEFAULT_PARAMS,
+  loadStoredParams,
+  saveParams,
+  clearStoredParams,
+} from './utils/paramStorage';
 import './index.css';
 
 const downloadBlob = (blob, filename) => {
@@ -25,22 +31,8 @@ const App = () => {
   const [background, setBackground] = useState(null);
   const [tileBackgrounds, setTileBackgrounds] = useState([]);
   const [selectedSpriteNames, setSelectedSpriteNames] = useState(new Set());
-  const [params, setParams] = useState({
-    tileSize: 192,
-    width: 6,
-    sample: 1,
-    outline: 0,
-    removeColor: null,
-    removeColorThreshold: 3,
-    shadowScale: 0.0,
-    useShadowImages: false,
-    missingShadowPolicy: 'skipShadow',
-    useBackground: false,
-    skipDuplicate: true,
-    previewMaxWidth: 1024,
-    tileBackgroundAssignments: {},
-    exportLayerMode: 'separate',
-  });
+  // Restore whatever was used last time; falls back to defaults field by field.
+  const [params, setParams] = useState(loadStoredParams);
   const [previewUrl, setPreviewUrl] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -61,6 +53,16 @@ const App = () => {
       return changed ? next : prev;
     });
   }, [sprites]);
+
+  // Escape hatch from a remembered setup. Per-tile assignments are made from
+  // the sprite list rather than the parameter panel, so they survive a reset.
+  const resetParams = () => {
+    setParams(p => ({
+      ...DEFAULT_PARAMS,
+      tileBackgroundAssignments: p.tileBackgroundAssignments,
+    }));
+    clearStoredParams();
+  };
 
   const assignBackgroundToSelected = (bgFilename) => {
     if (selectedSpriteNames.size === 0) return;
@@ -183,6 +185,9 @@ const App = () => {
         }
         return url;
       });
+
+      // The backend accepted this combination, so it is worth remembering.
+      saveParams(params);
     } catch (err) {
       setError(err.message);
       setPreviewUrl(null);
@@ -278,6 +283,9 @@ const App = () => {
       } else {
         downloadBlob(blob, filename);
       }
+
+      // Persist the panel's own values, not the export overrides above.
+      saveParams(params);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -340,12 +348,9 @@ const App = () => {
       setBackground(data.background ? toFile(data.background) : null);
       setTileBackgrounds((data.tileBackgrounds || []).map(toFile));
       setSelectedSpriteNames(new Set());
-      const loadedParams = {
-        tileBackgroundAssignments: {},
-        exportLayerMode: 'separate',
-        ...data.params,
-      };
-      setParams(loadedParams);
+      // A workspace outranks the remembered parameters; defaults only fill the
+      // gaps left by workspaces saved before a parameter existed.
+      setParams({ ...DEFAULT_PARAMS, ...data.params });
       setExportFilename(data.export_filename || 'atlas.png');
       setWorkspaceId(data.id);
       setWorkspaceName(data.name);
@@ -516,7 +521,7 @@ const App = () => {
           {/* Parameters Section */}
           <div className="section">
             <h2>Parameters</h2>
-            <ParameterPanel params={params} onParamsChange={setParams} />
+            <ParameterPanel params={params} onParamsChange={setParams} onReset={resetParams} />
           </div>
         </div>
 

@@ -118,4 +118,28 @@ describe('ParameterPanel', () => {
       removeColor: '00ff00'
     });
   });
+
+  test('renders no reset control when onReset is not supplied', () => {
+    render(
+      <ParameterPanel params={defaultParams} onParamsChange={mockOnParamsChange} />
+    );
+
+    expect(screen.queryByRole('button', { name: /reset to defaults/i })).not.toBeInTheDocument();
+  });
+
+  test('calls onReset when the reset button is clicked', () => {
+    const mockOnReset = jest.fn();
+    render(
+      <ParameterPanel
+        params={defaultParams}
+        onParamsChange={mockOnParamsChange}
+        onReset={mockOnReset}
+      />
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: /reset to defaults/i }));
+
+    expect(mockOnReset).toHaveBeenCalledTimes(1);
+    expect(mockOnParamsChange).not.toHaveBeenCalled();
+  });
 });

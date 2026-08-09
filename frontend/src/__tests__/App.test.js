@@ -1,5 +1,12 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import App from '../App';
+import { STORAGE_KEY, DEFAULT_PARAMS, saveParams } from '../utils/paramStorage';
+
+// App restores parameters from localStorage on mount, so tests must not leak
+// remembered state into one another.
+beforeEach(() => {
+  window.localStorage.clear();
+});
 
 // Mock FileUpload and ParameterPanel to avoid dropzone issues in tests
 jest.mock('../components/FileUpload', () => {
@@ -19,7 +26,7 @@ jest.mock('../components/FileUpload', () => {
 });
 
 jest.mock('../components/ParameterPanel', () => {
-  return function MockParameterPanel({ params, onParamsChange }) {
+  return function MockParameterPanel({ params, onParamsChange, onReset }) {
     return (
       <div data-testid="parameter-panel">
         <input
@@ -28,6 +35,7 @@ jest.mock('../components/ParameterPanel', () => {
           value={params.tileSize}
           onChange={(e) => onParamsChange({ ...params, tileSize: parseInt(e.target.value) })}
         />
+        <button type="button" data-testid="reset-params" onClick={onReset}>Reset</button>
       </div>
     );
   };
@@ -87,7 +95,7 @@ describe('App', () => {
     render(<App />);
     
     const fileUploads = screen.getAllByTestId('file-upload');
-    expect(fileUploads).toHaveLength(3); // Sprites, Shadow, Background
+    expect(fileUploads).toHaveLength(4); // Sprites, Shadow, Background, Tile Backgrounds
   });
 
   test('renders parameter panel', () => {
@@ -98,9 +106,9 @@ describe('App', () => {
 
   test('has correct initial parameter values', () => {
     render(<App />);
-    
+
     const tileSizeInput = screen.getByTestId('tile-size');
-    expect(tileSizeInput).toHaveValue(52);
+    expect(tileSizeInput).toHaveValue(DEFAULT_PARAMS.tileSize);
   });
 });
 describe('App export layer mode', () => {
@@ -192,5 +200,73 @@ describe('App export downloads', () => {
     fireEvent.click(screen.getByRole('button', { name: /export atlas/i }));
 
     await waitFor(() => expect(downloads).toEqual(['atlas.png']));
+  });
+});
+
+describe('App remembered parameters', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('restores the parameters saved by an earlier visit', () => {
+    saveParams({ ...DEFAULT_PARAMS, tileSize: 64, exportLayerMode: 'combined' });
+
+    render(<App />);
+
+    expect(screen.getByTestId('tile-size')).toHaveValue(64);
+    expect(screen.getByLabelText('Layers')).toHaveValue('combined');
+  });
+
+  test('falls back to the default when a stored value is out of range', () => {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ tileSize: 9999, width: 8 }));
+
+    render(<App />);
+
+    expect(screen.getByTestId('tile-size')).toHaveValue(DEFAULT_PARAMS.tileSize);
+  });
+
+  test('reset restores the defaults and forgets the stored parameters', () => {
+    saveParams({ ...DEFAULT_PARAMS, tileSize: 64 });
+
+    render(<App />);
+    expect(screen.getByTestId('tile-size')).toHaveValue(64);
+
+    fireEvent.click(screen.getByTestId('reset-params'));
+
+    expect(screen.getByTestId('tile-size')).toHaveValue(DEFAULT_PARAMS.tileSize);
+    expect(window.localStorage.getItem(STORAGE_KEY)).toBeNull();
+  });
+
+  test('a successful export records the parameters it used', async () => {
+    global.URL.createObjectURL = jest.fn(() => 'blob:mock');
+    global.URL.revokeObjectURL = jest.fn();
+    jest.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    global.fetch = jest.fn(() => Promise.resolve({
+      ok: true,
+      headers: { get: () => null },
+      blob: () => Promise.resolve(new Blob(['png'])),
+    }));
+
+    render(<App />);
+
+    const [spriteInput] = screen.getAllByTestId('file-input');
+    fireEvent.change(spriteInput, {
+      target: { files: [new File(['x'], 'hero.png', { type: 'image/png' })] },
+    });
+    fireEvent.change(screen.getByLabelText('Layers'), { target: { value: 'combined' } });
+    fireEvent.change(screen.getByTestId('tile-size'), { target: { value: '64' } });
+
+    fireEvent.click(screen.getByRole('button', { name: /export atlas/i }));
+
+    await waitFor(() => {
+      const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+      expect(saved.tileSize).toBe(64);
+      expect(saved.exportLayerMode).toBe('combined');
+    });
+
+    // The export bumps previewMaxWidth to disable downscaling; that override
+    // must not leak into what gets remembered.
+    const saved = JSON.parse(window.localStorage.getItem(STORAGE_KEY));
+    expect(saved.previewMaxWidth).toBe(DEFAULT_PARAMS.previewMaxWidth);
   });
 });

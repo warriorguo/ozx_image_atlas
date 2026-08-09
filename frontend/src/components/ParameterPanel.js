@@ -1,11 +1,12 @@
 import React from 'react';
 
-const ParameterPanel = ({ params, onParamsChange }) => {
+const ParameterPanel = ({ params, onParamsChange, onReset }) => {
   const updateParam = (key, value) => {
     onParamsChange({ ...params, [key]: value });
   };
 
   return (
+    <>
     <div className="param-grid">
       <div className="param-item">
         <label>Tile Size</label>
@@ -135,6 +136,15 @@ const ParameterPanel = ({ params, onParamsChange }) => {
         />
       </div>
     </div>
+    {onReset && (
+      <div className="param-actions">
+        <button type="button" className="param-reset-btn" onClick={onReset}>
+          Reset to defaults
+        </button>
+        <span className="hint">Parameters are remembered between visits.</span>
+      </div>
+    )}
+    </>
   );
 };
 

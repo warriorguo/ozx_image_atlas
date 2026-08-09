@@ -6,6 +6,7 @@ A web-based tool for creating image atlases using Python PIL backend and React f
 
 - **Import multiple sprite images** - Drag & drop interface with reordering
 - **Parameter customization** - Tile size, width, outline, color removal, etc.
+- **Remembered parameters** - The last settings you merged with are restored on your next visit
 - **Shadow support** - Two modes: scale-based shadows or separate shadow images
 - **Background image support** - Optional background tiling
 - **Real-time preview** - See changes instantly
@@ -76,6 +77,13 @@ When using shadow images, the tool automatically matches sprites with shadows ba
 - **Use Shadow Images**: Enable separate shadow image matching
 - **Missing Shadow Policy**: How to handle missing shadows
 - **Use Background**: Enable background image tiling
+
+After a preview or export succeeds, these values are saved in the browser
+(`localStorage`, key `oia.lastParams`) and restored on your next visit. Values
+outside the accepted range are ignored in favour of the default, and per-tile
+background assignments are never restored, since the sprites they name are not
+saved with them. "Reset to defaults" in the Parameters section clears the
+remembered set. Loading a workspace takes priority over it.
 
 ## API Endpoints
 
